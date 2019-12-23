@@ -1,0 +1,122 @@
+1. Basic information
+Team number (e.g., 01): 23
+#1 Student ID: 87568535
+#1 Student Name: Jong Ho Lee
+#2 Student ID: 29725021
+#2 Student Name: Seo Yeon Hwang
+OS (bit): Ubuntu 18.04.3 LTS / Mac OS X 10.15 (64-bit)
+gcc version: gcc 7.4.0 / gcc 4.2.1 (Apple clang version 11.0.0)
+
+
+2. Catalog information about Index
+- Show your catalog information about an index (tables, columns).
+    Answer)
+        Assume that we created a table named "left" which has attributes {A,B,C} and created an index on left.B.
+
+        1) Tables.tbl
+        table-id: 1   table-name: Tables    file-name: Tables.tbl     system-flag: 1
+        table-id: 2   table-name: Columns   file-name: Columns.tbl    system-flag: 1
+        table-id: 3   table-name: left      file-name: left.tbl       system-flag: 0
+        table-id: 4   table-name: left      file-name: leftB.idx      system-flag: 0
+
+        2) Columns.tbl
+        table-id: 1  column-name: table-id    column-type: 0  column-length: 4   column-position: 1  schema-versioning: 0
+        table-id: 1  column-name: table-name  column-type: 2  column-length: 50  column-position: 2  schema-versioning: 0
+        table-id: 1  column-name: file-name   column-type: 2  column-length: 50  column-position: 3  schema-versioning: 0
+        table-id: 1  column-name: system-flag column-type: 0  column-length: 4   column-position: 4  schema-versioning: 0
+
+        table-id: 2  column-name: table-id           column-type: 0  column-length: 4   column-position: 1  schema-versioning: 0
+        table-id: 2  column-name: column-name        column-type: 2  column-length: 50  column-position: 2  schema-versioning: 0
+        table-id: 2  column-name: column-type        column-type: 0  column-length: 4   column-position: 3  schema-versioning: 0
+        table-id: 2  column-name: column-length      column-type: 0  column-length: 4   column-position: 4  schema-versioning: 0
+        table-id: 2  column-name: column-position    column-type: 0  column-length: 4   column-position: 5  schema-versioning: 0
+        table-id: 2  column-name: schema-versioning  column-type: 0  column-length: 4   column-position: 6  schema-versioning: 0
+
+        table-id: 3  column-name: A  column-type: 0  column-length: 4  column-position: 1  schema-versioning: 0
+        table-id: 3  column-name: B  column-type: 0  column-length: 4  column-position: 2  schema-versioning: 0
+        table-id: 3  column-name: C  column-type: 1  column-length: 4  column-position: 3  schema-versioning: 0
+
+        table-id: 4  column-name: B  column-type: 0  column-length: 4  column-position: 1  schema-versioning: 0
+
+
+3. Block Nested Loop Join (If you have implemented this feature)
+- Describe how your block nested loop join works (especially, how you manage the given buffers.)
+    Answer)
+        Read tuples from left input iterator until (numPages-2) pages are read or QE_EOF
+            and put <attribute value, void*> into unordered multimap as a hash table
+        Read one tuple from right input table, and find(attribute key) in the hash table
+        If it is found, then read one value from the bucket and join(*) two tuples and return
+        If it is not found, continue reading from right table
+        When all tuples in right table is read and there exists unread tuples in left iterator,
+            then read the next (numPages-2) pages from left to form new hash table
+
+        (*)--> When join two tuples, just concat them.
+        e.g. If table1 has attributes table1.A table1.B table1.C,
+            and table2 has attributes table2.B table2.C table2.D,
+            then the join result has attributes table1.A table1.B table1.C table2.B table2.C table2.D .
+
+
+4. Index Nested Loop Join (If you have implemented this feature)
+- Describe how INL join works.
+    Answer)
+        A high-level code for our INL implementation is as follows:
+
+        // Assume that we are joining with attribute A
+        leftItr <- iterator for LEFT table
+        rightItr <- index scan iterator for RIGHT table
+        while (S <- leftItr.getNext() is not EOF):
+            rightItr.setIterator(S.A, S.A, true, true)      // Do key search with A attribute value
+            while (R <- rightItr.getNext() is not EOF):
+                <S,R> <- concatTuples(S,R);
+                add <S,R> to result
+
+
+5. Grace Hash Join (If you have implemented this feature)
+- Describe how your grace hash join works (especially, in-memory structure).
+
+
+6. Aggregation
+- Describe how your aggregation (basic, group-based hash) works.
+    Answer)
+        We implemented aggregation using an in-memory hash table.
+        Since we can assume that the number of groups is small enough to fit into memory, this is doable.
+        The following is a high-level code for aggregation. We express our logic with a VERY high-level of pseudo-code,
+        while explaining other important parts as comments. This is because we do not want to inconvenience the instructor
+        grading this readme.txt by sifting through a long piece of code.
+
+        [Pseudo-code]
+        // We want to aggregate on attribute C
+        isGroupBy <- boolean value. If group-based hash: true, if basic: false
+        input <- iterator for table
+        groupAttrVal <- variable for holding group attribute value
+                        // IMPORTANT: if basic aggregation is used, we only use 1 bucket from the hashtable
+                                      if groupby aggregation is used, we use multiple buckets from the hashtable
+                                            each containing its respective aggregation value for a groupby value
+        while (R <- input.getNext() is not EOF):
+            if (R.C is NULL):
+                continue            // NULL values are not countable or operatable
+
+            if (isGroupBy)
+                hashtable.insert(<groupAttrVal, incrementally aggregated value for C>)      // Multiple buckets for each groupby attribute
+            else
+                hashtable.insert(<0, incrementally aggregated value for C>)         // Single bucket for basic aggregation
+
+        // NOTE: incrementally aggregated value is done with a switch statement for each aggregate operator
+        //      MIN: if current value is lower than current minimum, replace current minimum
+        //      MAX: if current value is higher than current maximum, replace current maximum
+        //      COUNT: increase current count
+        //      SUM: Add current value to currently aggregated sum
+        //      AVG: Keep counting the returned tuples while keeping track of the SUM of the attribute.
+        //           After input is exhausted, do SUM / COUNT
+
+7. Implementation Detail
+- Have you added your own source file (.cc or .h)?
+    NO
+- Have you implemented any optional features? Then, describe them here.
+    NO
+- Other implementation details:
+    To handle duplicate keys, we use C++ STL's unordered_multimap as our in-memory hash table. std::unordered_multimap allows multiple items that have the same key.
+
+6. Other (optional)
+- Freely use this section to tell us about things that are related to the project 4, but not related to the other sections (optional)
+

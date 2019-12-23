@@ -1,0 +1,63 @@
+1. Basic information
+Student ID : 87568535 / 29725021
+Student Name : Jong Ho Lee / Seo Yeon Hwang
+OS (bit) : Ubuntu 18.04.3 LTS / Mac OS X 10.14.6
+gcc version : gcc 7.4.0 / LLVM version 10.0.1
+
+
+2. Internal Record Format
+- Show your record format design and describe how your design satisfies O(1) field access. If not, just mention that you haven't implemented this feature.
+	Answer) For a record with n fields, our record format is as follows:
+                -------------------------------------------------------------------------------------
+               | n | null-byte-indicator | o_1 | o_2 | o_3 | ... | o_n | v_1 | v_2 | v_3 | ... | v_n |
+                -------------------------------------------------------------------------------------
+        	where n is the number of fields (unsigned int) ,
+                    null-byte-indicator is the bits that represent which fields are the nulls in the record (same format as the input) (unsigned char*),
+                	o_i is the offset of the ENDING of the field f_i (unsigned int), and
+                	v_i is the actual value of the field f_i (the i-th field) (the type varies based on data - TypeVarChar/TypeInt/TypeReal).
+
+        	Our design satisfies O(1) access by reading the o_i offsets to directly go to the field value v_i.
+
+- Describe how you store a VarChar field.
+	Answer) Since the length of the i-th field value can be calculated as o_i - o_(i-1), VarChar values do not need a separate length indicator.
+	        Thus, as different fields, we store only the actual VarChar value (string) in v_i.
+
+
+3. Page Format
+- Show your page format design
+    Answer) For a page in a file, our page format is as follows:
+                --------------------------------------------------------------------------
+               | record_0 | record_1 | record_2 | ...  ->                                 |
+               |                                                                          |
+               |                                                                          |
+               |                                                                          |
+               |                                                                          |
+               |                                                                          |
+               |                              <-   ... | slot_2 | slot_1 | slot_0 | N | F |
+                --------------------------------------------------------------------------
+             where record_i is the inserted i-th record in the page (with the format as above),
+                    F is the number of remaining free space bytes (unsigned short - 2 bytes),
+                    N is the number of slots in the slot directory of the page (unsigned short - 2 bytes), and
+                    slot_i is the slot for each record_i as below:
+                            slot_i = [ record_offset_i | record_length_i ]
+                        where record_offset_i is the offset in bytes from the start of the page to the start of the i-th record (unsigned short) and
+                              record_length_i is the length of i-th record (unsigned short).
+
+
+
+
+4. Implementation Detail
+- Other implementation details goes here.
+    Answer) <Finding an available page to insert record>
+            We implement a linear search for checking an available page in a file.
+            In the worst case, our design requires O(n) search in the file to insert a record, where n is the number of pages in the file.
+
+            <Creating a slot for each record in slot directory>
+            We make a slot for each inserted record from the end of the file; we do not search for a dead slot.
+            (We might need to search the dead slot when dealing with deleteRecord and updateRecord later.)
+
+
+5. Other (optional)
+- Freely use this section to tell us about things that are related to the project 1, but not related to the other sections (optional)
+
+

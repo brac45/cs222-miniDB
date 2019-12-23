@@ -1,0 +1,50 @@
+# Prerequisites
+*.d
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# Clion stuff
+cmake-build-debug/
+.idea/
+
+# Project files
+tbl_*
+Tables
+Columns
+*_file
+test11
+
+rbf/test_delete
+
+rbf/test_update
+
+# Run scripts
+rm/run_rm_private_tests.sh

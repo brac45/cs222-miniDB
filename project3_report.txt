@@ -1,0 +1,249 @@
+1. Basic information
+
+Team number (e.g., 01): 23
+#1 Student ID: 87568535
+#1 Student Name: Jong Ho Lee
+#2 Student ID: 29725021
+#2 Student Name: Seo Yeon Hwang
+OS (bit): Ubuntu 18.04.3 LTS / Mac OS X 10.15 (64-bit)
+gcc version: gcc 7.4.0 / gcc 4.2.1 (Apple clang version 11.0.0)
+
+
+2. Meta-data page in an index file
+- Show your meta-data page of an index design if you have any.
+
+ Answer) Hidden page has meta-data in this order: * [offsets]
+            * 0-3: ixReadPageCounter (unsigned)
+            * 4-7: ixWritePageCounter (unsigned)
+            * 8-11: ixAppendPageCounter (unsigned)
+            * 12-15: rootPageNum (unsigned)
+            * 16-19: init (unsigned)
+         where ixReadPageCounter / ixWritePageCounter / ixAppendPageCounter count the number of readPage / writePage / appendPage, respectively,
+                rootPageNum is the pageNum of the root node of this B+ Tree, and
+                init indicates whether this tree has a node or not after created.
+                i.e. init = 1, when the file is created, but after the first entry is inserted, init becomes 0.
+
+
+3. Index Entry Format
+- Show your index entry design (structure).
+
+Answer) Our B+ Tree design is as follows:
+
+    1) root node is created as a leaf node
+    2) The next data is inserted in the same root node, before overflow occurs.
+        Overflow is defined when the free-space of the page (node) is less than the inserted data.
+    3) When overflow occurs, another leaf node is created and second half entries of the root node is moved to the new node.
+        Also, one intermediate node is created which has one key, which is the smallest key value of the new node,
+        and two pageNums, which indicate original root node and the new node.
+        Then, the intermediate node is set as new root node of this B+ tree.
+
+        ------------------    (full)             -----------------------
+       | root node (leaf) |     ->              | new root node (inter) |
+        ------------------                       -----------------------
+                                                    /               \
+                                  --------------------------       ------------------
+                                 |original root node (leaf) |     | new node (leaf) |
+                                  --------------------------       ------------------
+
+    4) Each leaf node is sorted (clustered) as follows:
+                                            [ ... | K_i | K_i+1 | ...]     if key_i < key_i+1 , or
+                                                                              key_i == key_i+1 and rid_i < rid_i+1
+                                        and [ ... | K_i-1 | K_i | ...]     if key_i > key_i-1 , or
+                                                                              key_i == key_i-1 and rid_i >= rid_i-1
+       Also, each intermediate node is sorted (clustered) as follows:
+                                        [ ... | P_i-1 | K_i | P_i | K_i+1 | ... ]
+                                        Let the searching/inserting key be [ currentKey | currentRid ]. and K_i = [key_i | rid_i].
+                                        Then,
+                                        - if currentKey < K_i, go to pageNum P_i-1
+                                        - if currentKey == K_i and currentRid < rid_i, go to pageNum P_i-1
+                                        - if currentKey == K_i and currentRid >= rid_i, consider K_i+1
+                                        - if currentKey > K_i, consider K_i+1
+                                        - When considering K_i+1,
+                                            if (currentKey < K_i+1) or (currentKey == K_i+1 and currentRid < rid_i+1),
+                                                then go to PageNum P_i
+                                            else, consider K_i+2
+
+
+4. Page Format
+- Show your internal-page (non-leaf node) design.
+
+Answer) Intermediate node : [ isLeaf | N | F | P_0 | K_1 | P_1 | ... | P_(N-1) | K_N | P_N ]
+                            where isLeaf (byte, 1) represents whether this node is leaf (1) or not (0) (i.e. isLeaf = 0),
+                                    N (unsigned, 4) is the number of keys in this node,
+                                    F (unsigned, 4) is how much free-space remains in this node(page),
+                                    P_i (unsigned, 4) is a pageNum of each sub-tree such that K_i <= P_i < K_i+1,
+                                    and
+                                    K_i is the key values, which consists of [ key | rid ].
+                                        key  = 4 bytes if the type of attribute is either TypeInt or TypeReal,
+                                              (4 + length) bytes if one is TypeVarChar as follows: [ length(4) | varChar(length) ]
+                                        rid = 8 bytes of pageNum and slotNum as follows: [ rid.pageNum(4) | rid.slotNum(4) ]
+                                        i.e. K_i = [ key(4 or 4+length) | rid.pageNum(4) | rid.slotNum(4) ] to make every key value unique.
+
+
+- Show your leaf-page (leaf node) design.
+
+Answer) Leaf node : [ isLeaf | N | F | nextLeaf | K_1 | K_2 | ... | K_N ]
+                            where isLeaf (byte, 1) represents whether this node is leaf (1) or not (0) (i.e. isLeaf = 1),
+                                    N (unsigned, 4) is the number of keys in this node,
+                                    F (unsigned, 4) is how much free-space remains in this node(page),
+                                    nextLeaf (int, 4) indicates the pageNum of the next leaf node (sibling)
+                                        ( nextLeaf = -1, if current leaf node is the last leaf node ),
+                                    and
+                                    K_i is the key values, which consists of [ key | rid ].
+                                        key  = 4 bytes if the type of attribute is either TypeInt or TypeReal,
+                                                (4 + length) bytes if one is TypeVarChar as follows: [ length(4) | varChar(length) ]
+                                        rid = 8 bytes of pageNum and slotNum as follows: [ rid.pageNum(4) | rid.slotNum(4) ]
+                                        i.e. K_i = [ key(4 or 4+length) | rid.pageNum(4) | rid.slotNum(4) ] to make every key value unique.
+
+
+
+5. Implementation Detail
+- Have you added your own source file (.cc or .h)?
+
+    Answer) No
+
+- Have you implemented non-lazy deletion? Choose Yes or No:
+
+    Answer) No, our deletion is a lazy deletion.
+
+
+- Have you implemented duplicated key handling that can span multiple pages? Choose Yes or No: 
+  If yes, please explain briefly how you have implemented this feature.
+
+    Answer) Yes. To handle a lot of duplicated keys, we set the key as [ key | rid ] so that every key becomes unique.
+    Unlike the examples in the lecture slide, as we build up the tree from a leaf node and make an intermediate node when the leaf node overflowed,
+    the intermediate node can also hold the [ key | rid ] as the Key value as well.
+    We know it uses more space, which leads less number of fan out if there's no duplicate keys,
+    but our method makes all the keys unique by RIDs so that duplicate keys can be dealt with (even the case that they are more than one page).
+
+- Other implementation details:
+
+    Answer)
+
+    insertEntry(): if init == 1 : run insertInit() // run only when the first entry is inserted after the file is created
+                   if init == 0 : run insertTree() // all insertion use this function recursively, except the very first insertion
+
+                   insertInit():
+
+                        Set the leaf page format with isLeaf = 1, N = 1, F = (calculated with key length), nextLeaf = -1,
+                        Insert the Key = [ key | rid ] depending on the type of the key (TypeInt/TypeReal/TypeVarChar)
+                        Set this node as the root node of the B+ tree, and change init = 0 for the next insertion
+                        Update the hidden page and write the current node into disk
+
+                   insertTree(): // similar to the pseudo-code in textbook
+
+                        if(this is an intermediate node){ // isLeaf == 0;
+
+                            Find the position(*) to insert current Key
+                            Recursively run insertTree() with this(*) position
+                            if(newChildEntry == nullptr){
+                                return;
+                            }
+                            else{    // need to insert newChildEntry which has format [ Key(key|rid) | pageNum ]
+                                if(current node has enough space){
+
+                                    Find the position(**) to insert newChildEntry
+                                    Put newChildEntry to this(**) position
+                                    Set newChildEntry = nullptr
+                                    return;
+
+                                }
+                                else{   // need to split current node into two nodes and insert newChildEntry into either current node or the new node
+
+                                    Find the starting entry located after half of the current node and save the key and rid value of the entry
+                                    Create new intermediate node and move second half entries of current node to this new node
+
+                                        i.e. If K_i is the entry located right after half, [ ... | P_i-1 | K_i | P_i | ... ],
+                                             then save the K_i and split the current node as follows:
+                                                new node: [isLeaf | newN | newF | P_i | K_i+1 | ... | K_N | P_N ]
+                                                current node: [ isLeaf | N | F | P_0 | ... | K_i-1 | P_i-1 ]
+                                             Later (here (!!)), set the newChildEntry as [ K_i | pageNum of new node ], where K_i = [ key_i | rid_i ]
+
+                                    Compare current Key of newChildEntry to the smallest key of the new node to determine which node it should be inserted
+                                    Insert the newChildEntry into either current node or the new node
+                                    (!!) Set the newChildEntry as K_i and the pageNum of the new node. i.e. newChildEntry = [ K_i | pageNum of new node ]
+                                    If(current node was the root node),
+                                        create one intermediate node having one key, the newChildEntry, with two pageNum (current pageNum and new pageNum)
+                                        and set it as the new root node of the tree
+                                    return;
+
+                                }
+                            }
+
+                        }else if(this is a leaf node){ //// isLeaf == 1;
+
+                            if(current node has enough space){
+
+                                Find the position(***) to insert current Key
+                                Put current key into the position(***) and flush into disk
+                                return;
+
+                            }
+                            else{   // need to split current node into two leaf nodes and insert current key into either current node or the new node
+
+                                  Find the starting entry located after half of the current node
+                                  Create new leaf node and move second half entries of current node to this new node
+                                  Compare current Key to the smallest key of the new node to determine which node it should be inserted
+                                  Insert the current Key into either current node or the new node
+                                  Set the newChildEntry as the smallest key of the new node and the pageNum of the new node
+                                  If(current node was the root node),
+                                      create one intermediate node having one key, the newChildEntry, with two pageNum (current pageNum and new pageNum)
+                                      and set it as the new root node of the tree
+                                  return;
+
+                            }
+
+                        }
+
+
+    deleteEntry():
+    Our deletion first searches for the leaf node containing the key value by doing a recursive B+ Tree search.
+        The pseudo-code of our recursive B+ Tree search is loosely based from the textbook, "Ramakrishnan - Database Management Systems 3rd Edition"
+        The pseudo-code is the following:
+            proc tree_search (node_ptr, search key value K) returns nodepointer
+            if *node_ptr is a leaf, return nodepointer;
+            else,
+                if K < K_1 then return tree_search(P_0, K);
+                else,
+                    if K >= then return tree_search(P_m, K);
+                    else,
+                        find i such that K_i <= K < K_(i+1)
+                        return tree_search(P_i, K)
+            end proc
+
+        After the leaf node is found, it looks for the key. If the key is found, the key is deleted, else the function returns a failure code
+        Therefore, our deletion code does not check for underflowing, and it is entirely possible for entire leaves to be empty but still attached to a intermediate node
+        Thus, the tree does not "shrink"; instead it only dynamically grows since the B+ tree insertion is a splitting insertion.
+
+    scan():
+    Our scan() searches for the leaf node first by doing a recursive B+tree search, similarily to our deleteEntry().
+    After it finds the leaf node, it checks for inclusive-ness by looking at the input flags. Since our key is kind of like a "composite" entry where we use RIDs to ensure the
+    uniqueness of our entries, if we want inclusive keys we set the RID number to lowest (if lowkey) or highest (if highkey). We do the opposite if we don't want inclusive keys.
+    The scan iterator internally has a cursor comprising of a page offset and a page number pointing to the current page.
+
+    After initial scan(), we traverse the page buffer from the lowest memory address first since our B+Tree is ensured to be in order. Also, we use the leaf nodes' "nextLeaf" pointers
+    to traverse to adjacent leaf pointers.
+
+    IMPORTANT: After the initial scan(), whenever there is a potential change to the B tree (i.e., deleteEntry, insertEntry), the scan "re-initializes" itself by re-adjusting its internal pointer.
+    Re-initializement is done by traversing from the root page again to the leaf node, where the low key would be the last returned entry exclusively. This would make the scan iterator to
+    point to the next entry after the last returned entry. To detect changes in the BTree, the IndexManager maintains a global map that has the pair <ID, ScanItnerator*> where ID is type int
+    and ScanIterator* is a pointer to an active scanIterator. A scan iterator becomes active whenever scan() is called upon it. Thus, whenever there has been a change in the B+Tree, it iterates
+    the map of activated iterators and re-initializes them all. One may argue that re-initializing scan iterators this way will be inefficient since it traverses from the root page again. However,
+    when implementing our IndexManager, we implemented it assuming there would be a buffer pool beneath the PagedFileManager. Since the downwards travel path from the root during
+    re-initialization would unlikely diverge, there would be a high chance of getting a "cache hit" in our buffer pool.
+
+    printBtree():
+    printBtree does a recursive pre-order traversal of the B+Tree, where a "visit" to the node would print out its contents.
+    Our pre-order traversal pseudo-code looks like the following:
+        Procedure Preorder(treenode)
+           visit(treenode)              // Prints out the node contents
+           Preorder(left_subtree)
+           Preorder(right_subtree)
+
+    Since we take care of our duplicate keys by using RIDs as composite keys, our printBTree() function prints out the intermediate nodes' key RIDs also. This was discussed on Piazza.
+
+
+
+6. Other (optional)
+- Freely use this section to tell us about things that are related to the project 3, but not related to the other sections (optional)
+

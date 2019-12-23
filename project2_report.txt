@@ -1,0 +1,206 @@
+1. Basic information
+Team number (e.g., 01): 23
+#1 Student ID: 87568535
+#1 Student Name: Jong Ho Lee
+#2 Student ID: 29725021
+#2 Student Name: Seo Yeon Hwang
+OS (bit): Ubuntu 18.04.3 LTS / Mac OS X 10.15 (64-bit)
+gcc version: gcc 7.4.0 / gcc 4.2.1 (Apple clang version 11.0.0)
+
+
+2. Meta-data
+- Show your meta-data design (Tables and Columns table) and information about each column.
+    Answer)
+            Tables (table-id:int, table-name:varchar(50), file-name:varchar(50), system-flag:int)
+                1. table-id: unique ID for each table, starting from 1.
+                2. table-name: string for table name
+                3. file-name: string for file name that contains the table with same name
+                4. system-flag: flag to represent if the table is system table or user table. '1' for system tables (Tables and Columns) and '0' for user tables
+
+
+            Columns (table-id:int, column-name:varchar(50), column-type:int, column-length:int, column-position:int, schema-versioning:int)
+                1. table-id: unique ID for each table
+                2. column-name: name (string) of each attribute in the table
+                3. column-type: type (TypeInt/TypeReal/TypeVarChar) of each attribute in the table
+                4. column-length: length of each attribute in the table. 4 for TypeInt and TypeReal, and an (various) integer for TypeVarChar
+                5. column-position: position of the attribute in the table, starting from 1.
+                6. schema-versioning: integer for schema-versioning, starting from 0.
+
+
+
+3. Internal Record Format
+- Show your record format design and describe how your design satisfies O(1) field access. If not, just mention that your team hasn't implemented this feature.
+    Answer)
+            For a record with n fields, our record format is as follows:
+                            -------------------------------------------------------------------------------------
+                           | n | null-byte-indicator | o_1 | o_2 | o_3 | ... | o_n | v_1 | v_2 | v_3 | ... | v_n |
+                            -------------------------------------------------------------------------------------
+                    	where n is the number of fields (unsigned int) ,
+                                null-byte-indicator is the bits that represent which fields are the nulls in the record (same format as the input) (unsigned char*),
+                            	o_i is the offset of the ENDING of the field f_i (unsigned int), and
+                            	v_i is the actual value of the field f_i (the i-th field) (the type varies based on data - TypeVarChar/TypeInt/TypeReal).
+
+                    	Our design satisfies O(1) access by reading the o_i offsets to directly go to the field value v_i.
+
+            For a record pointing the another record in other page, (let's say "pointing record"), our format is as follows:
+                            ---------------------------------------
+                           | 11111111 (1 byte) | PageNum | SlotNum |
+                            ---------------------------------------
+                        where the first eight bits represent that this record is not the real record but a pointing record.
+                                 We set this 1 byte as 255 (= 11111111) because the number of fields (n) in one record does not exceed the PAGE_SIZE(4096 bytes).
+                                 PageNum and SlotNum represent the page and the slot directory where the pointed record is located.
+
+
+- Describe how you store a VarChar field.
+    Answer)
+            Since the length of the i-th field value can be calculated as o_i - o_(i-1), VarChar values do not need a separate length indicator.
+            Thus, as different fields, we store only the actual VarChar value (string) in v_i.
+
+
+- Describe how you deal with an update and delete.
+    Answer)
+            For delete, our code finds the record that we want to delete using RID and see if it's a pointing record or the real record.
+                - If it is the pointing record, since the record contains the page number and slot number of the pointed record,
+                  set the new RID with them and recursively call the deleteRecord() function with the new RID.
+                - If it is the real record, all the right records are shifted to the left by the length of deleted record.
+                  In detail, find each slot for the next record to get the length of the next record.
+                  Then overwrite the next record to the starting point of the current record, and repeat this until the end of the records in this page.
+                  After left shifting of all the right records of the deleted record,
+                  update the 'F' value (the number of free space in this page) of the page as the free space is increased by recordLength.
+                  Also, set recordLength = 0 to represent the slot for the deleted record to be "Dead".
+                  Write this changed page to the file.
+
+            --------------------------------------------------                                If record_i = [ 11111111 (1 byte) | PageNum | SlotNum ], record_i is a pointing record.
+           | record_1 | record_2 | ... | record_i-1 | record_i|                               ==> Find and recursively delete the pointed record using this PageNum and SlotNum
+           | record_i+1 | record_i+2 | ... | record_n |       |  (delete record of slot_i)    Also, delete this pointing record, record_i, in this page.
+           |                                                  |      ---------------->
+           |            (free-space)                          |                               If record_i = [ numOfField | nullBitIndicator | offset_1 | .. | offset_m | value_1 | .. | value_m ],
+           |     slot_n | ... | slot_i | ... | slot_1 | N | F |                               record_i is the real record we need to delete.
+            --------------------------------------------------                                Shift the next record to the left by the length of record so that it can overwrite properly.
+            where slot_i = [ offset_i | length_i ]                                            As a result, the page will become as follows:
+                                                                                               -----------------------------------------------------
+                                                                                              | record_1 | record_2 | ... | record_i-1 | record_i+1 |
+                                                                                              | record_i+2 | ... | record_n |                       |
+                                                                                              |                                                     |
+                                                                                              |        (free-space)                                 |
+                                                                                              |        slot_n | ... | slot_i | ... | slot_1 | N | F |
+                                                                                               -----------------------------------------------------    where slot_i = [ offset_i | length_i = 0 ]
+
+            For update, let's denote the record needed to be updated as "old_record" and the updating record to be "new_record"
+            Recall that if the record is not fit in the current page, it should be changed to "pointing_record" and the new_record should be in the other available page.
+            Our pseudo-code is as follows:
+
+                If (old_record is pointing_record):
+                    As the pointing_record format is [ 11111111 (1 byte) | PageNum | SlotNum ],
+                    read these PageNum and SlotNum information to the new RID, pointedRID,
+                    and recursively call updateRecord() with pointedRID.
+
+                else (i.e. old_record is the normal record):
+                    we should consider the following three cases:
+
+                    if ( length(old_record) == length(new_record) ):
+                        Replace the old_record with new_record
+
+                    else if ( length(old_record) > length(new_record) ):
+                        Overwrite the old_record with new_record,
+                        and shift all the next remaining records to the left by the difference (length(old_record) - length(new_record))
+                        Update F value of the page to F = F + difference
+
+                    else ( length(old_record) < length(new_record) ):
+                        we need to consider very carefully all the cases as follows:
+
+                        if ( size(free-space) + length(old_record) ) >= length(new_record) ):
+                            Shift all the remaining records (next to old_record) to the left
+                            and update the size(free-space) of the page.
+                            Then, append the new_record to the beginning of the free-space
+                            and update the offset and length of the record in the same rid.slotNum.
+
+                        else (i.e. size(free-space) + length(old_record) ) < length(new_record) ):
+                            In this case, we need to put a pointing_record to the old_record and put the new_record in the different page.
+                            Use insertRecord() to find the other available page to insert new_record.
+                            The cases can be divided as below:
+
+                            if ( length(pointing_record) == length(old_record) ):
+                                Replace the old_record with pointing_record
+
+                            else if ( length(pointing_record) < length(old_record) ):
+                                Put the pointing_record in the location of old_record
+                                and shift all the remaining records to the left by the difference ( length(old_record) - length(pointing_record) )
+                                Increase the size(free-space) by the difference,
+                                and update the length of the record in the slot directory.
+
+                            else ( length(pointing_record) > length(old_record) ):
+                                In our design of pointing_record and record, this case can't be happened
+                                as the length(pointing_record) = 9 [ 1 byte | pageNum (4 bytes) | slotNum (4 bytes) ],
+                                and the length(minimum_record) = 9 [ numOfField = 1 (4 bytes) | nullBitInd = 10000000 (1 byte) | offset_0 (4 bytes) ].
+                                Therefore, error message will be printed out in this case.
+
+
+
+4. Page Format
+- Show your page format design.
+    Answer) For a page in a file, our page format is as follows:
+                --------------------------------------------------------------------------
+               | record_0 | record_1 | record_2 | ...  ->                                 |
+               |                                                                          |
+               |                                                                          |
+               |                                                                          |
+               |                                                                          |
+               |                                                                          |
+               |                              <-   ... | slot_2 | slot_1 | slot_0 | N | F |
+                --------------------------------------------------------------------------
+             where record_i is the inserted i-th record in the page (with the format as above),
+                    F is the number of remaining free space bytes (unsigned short - 2 bytes),
+                    N is the number of slots in the slot directory of the page (unsigned short - 2 bytes), and
+                    slot_i is the slot for each record_i as below:
+                            slot_i = [ record_offset_i | record_length_i ]
+                        where record_offset_i is the offset in bytes from the start of the page to the start of the i-th record (unsigned short) and
+                              record_length_i is the length of i-th record (unsigned short).
+
+
+
+- Describe how you deal with an update and delete.
+
+    ( This is mentioned in detail in the previous question (3.3). )
+
+- Show your page format design
+
+    ( ? I guess this question is duplicated. )
+
+
+5. File Format
+- Show your file format design
+    Answer)
+        Our file format is as follows: One hidden page holding meta data and then normal pages following.
+            There's one hidden page at the beginning of the file,
+            which contains (unsigned) readPageCounter, (unsigned) writePageCounter, (unsigned) appendPageCounter, (FILE*) filePointer, (unsigned) tableIdCounter, and (unsigned) schemaVersioningCounter.
+            readPageCounter, writePageCounter, and appendPageCounter count the number of read/write/append page to the file respectively, and filePointer is the pointer to this file.
+            tableIdCounter is the last table-id that this file (table) is containing. (table-id starts from 1, 2, 3, ...)
+            (e.g. If the catalog table, Tables, has 3 tuples named Tables (with table-id 1), Columns (with table-id 2), and Employees (with table-id 3),
+                  then tableIdCounter of the file Tables.tbl is currently 3.)
+            schemaVersioningCounter is representing the current schema version. (schema version starts from 0, 1, 2, ... )
+
+        -----------------------------------------------------------
+       |  --(hidden page)----------------------------------------  |
+       | | readPageCounter | writePageCounter | appendPageCounter| |
+       | | filePointer | tableIdCounter | schemaVersioningCounter| |
+       | |                                                       | |
+       |  -------------------------------------------------------  |
+       |  --(page 0)---------------------------------------------  |
+       | | record_0 | record_1 | ...                             | |
+       | |                                                       | |
+       | |                          ... | slot_1 | slot_0| N | F | |
+       |  -------------------------------------------------------  |
+       |                                                           |
+       |                        ...                                |
+
+
+
+6. Implementation Detail
+- Other implementation details goes here.
+    When implementing scan() and the scan iterator, we only cache the current page that is being looked at by the scan iterator.
+    To prevent duplicate records from being read by the scan iterator, we copy a whole temporary table file (.tbl) and use that when
+    iterating values. Whenever we read a record by the scan iterator, the record is deleted, hence removing the possibility of the same record being returned with a different RID.
+
+7. Other (optional)
+- Freely use this section to tell us about things that are related to the project 2, but not related to the other sections (optional)
